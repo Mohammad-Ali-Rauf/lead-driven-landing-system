@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createToken, setAuthCookie } from "@/lib/auth";
+import { createToken, setAuthCookieOnResponse } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
@@ -35,9 +35,10 @@ export async function POST(request: Request) {
     }
 
     const token = createToken(pin.trim());
-    await setAuthCookie(token);
+    const response = NextResponse.json({ ok: true });
+    setAuthCookieOnResponse(response, token);
 
-    return NextResponse.json({ ok: true });
+    return response;
   } catch {
     return NextResponse.json(
       { ok: false, error: "Something went wrong." },

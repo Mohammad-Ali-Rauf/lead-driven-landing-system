@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
-const COOKIE_NAME = "admin_token";
+export const COOKIE_NAME = "admin_token";
 
 function getSecret(): string {
   const secret = process.env.AUTH_SECRET;
@@ -45,19 +46,19 @@ export async function isAuthenticated(): Promise<boolean> {
   }
 }
 
-export async function setAuthCookie(token: string) {
-  const store = await cookies();
+export function setAuthCookieOnResponse(response: NextResponse, token: string) {
   const isSecure = process.env.NODE_ENV === "production";
-  store.set(COOKIE_NAME, token, {
+  response.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
+  return response;
 }
 
-export async function clearAuthCookie() {
-  const store = await cookies();
-  store.delete(COOKIE_NAME);
+export function clearAuthCookieOnResponse(response: NextResponse) {
+  response.cookies.delete(COOKIE_NAME);
+  return response;
 }
