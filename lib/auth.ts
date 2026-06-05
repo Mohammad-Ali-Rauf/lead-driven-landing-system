@@ -51,7 +51,7 @@ export function setAuthCookieOnResponse(response: NextResponse, token: string) {
   response.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: isSecure,
-    sameSite: "lax",
+    sameSite: "none",
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
