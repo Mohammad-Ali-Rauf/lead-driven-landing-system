@@ -11,10 +11,10 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.3",
     "next": "^15.5.18",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "sql.js": "^1.14.1"
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.4",

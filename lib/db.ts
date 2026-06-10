@@ -1,52 +1,37 @@
-import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
-import fs from "fs";
-import path from "path";
+import { createClient } from "@libsql/client";
+import type { Client } from "@libsql/client";
 
-const dbPath = path.join(process.cwd(), "data", "leads.db");
+let client: Client | null = null;
+let initialized = false;
 
-let db: SqlJsDatabase | null = null;
-let initError: Error | null = null;
-let initPromise: Promise<SqlJsDatabase> | null = null;
-
-async function getDb(): Promise<SqlJsDatabase> {
-  if (initError) throw initError;
-  if (db) return db;
-
-  if (!initPromise) {
-    initPromise = initSqlJs().then(async (SQL) => {
-      const exists = fs.existsSync(dbPath);
-      const d = exists
-        ? new SQL.Database(fs.readFileSync(dbPath))
-        : new SQL.Database();
-
-      d.run(`
-        CREATE TABLE IF NOT EXISTS leads (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          email TEXT NOT NULL,
-          phone TEXT DEFAULT '',
-          company TEXT DEFAULT '',
-          message TEXT NOT NULL,
-          created_at TEXT DEFAULT (datetime('now'))
-        )
-      `);
-
-      if (!exists) save(d);
-      return d;
-    }).catch((e) => {
-      initError = e;
-      throw e;
-    });
+function getClient(): Client {
+  if (client) return client;
+  const url = process.env.TURSO_DATABASE_URL;
+  if (!url) {
+    throw new Error("TURSO_DATABASE_URL environment variable is required.");
   }
-
-  db = await initPromise;
-  return db;
+  client = createClient({
+    url,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
+  return client;
 }
 
-function save(d: SqlJsDatabase) {
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  const data = d.export();
-  fs.writeFileSync(dbPath, Buffer.from(data));
+async function init() {
+  if (initialized) return;
+  const db = getClient();
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT DEFAULT '',
+      company TEXT DEFAULT '',
+      message TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  initialized = true;
 }
 
 export async function insertLead(lead: {
@@ -56,40 +41,44 @@ export async function insertLead(lead: {
   company: string;
   message: string;
 }) {
-  const d = await getDb();
-  d.run(
-    "INSERT INTO leads (name, email, phone, company, message) VALUES (?, ?, ?, ?, ?)",
-    [lead.name, lead.email, lead.phone, lead.company, lead.message]
-  );
-  save(d);
+  await init();
+  const db = getClient();
+  await db.execute({
+    sql: "INSERT INTO leads (name, email, phone, company, message) VALUES (?, ?, ?, ?, ?)",
+    args: [lead.name, lead.email, lead.phone, lead.company, lead.message],
+  });
 }
 
 export async function getAllLeads(): Promise<Lead[]> {
-  const d = await getDb();
-  const stmt = d.prepare("SELECT * FROM leads ORDER BY created_at DESC");
-  const rows: Lead[] = [];
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject() as Lead);
-  }
-  stmt.free();
-  return rows;
+  await init();
+  const db = getClient();
+  const rs = await db.execute("SELECT * FROM leads ORDER BY created_at DESC");
+  return rs.rows.map((r) => ({
+    id: Number(r.id),
+    name: String(r.name ?? ""),
+    email: String(r.email ?? ""),
+    phone: String(r.phone ?? ""),
+    company: String(r.company ?? ""),
+    message: String(r.message ?? ""),
+    created_at: String(r.created_at ?? ""),
+  }));
 }
 
 export async function getLeadStats() {
-  const d = await getDb();
-  const total = (
-    d.exec("SELECT COUNT(*) FROM leads")[0]?.values[0]?.[0] ?? 0
-  ) as number;
-  const today = (
-    d.exec("SELECT COUNT(*) FROM leads WHERE date(created_at) = date('now')")[0]
-      ?.values[0]?.[0] ?? 0
-  ) as number;
-  const week = (
-    d.exec(
-      "SELECT COUNT(*) FROM leads WHERE created_at >= datetime('now', '-7 days')"
-    )[0]?.values[0]?.[0] ?? 0
-  ) as number;
-  return { total, today, week };
+  await init();
+  const db = getClient();
+  const total = await db.execute("SELECT COUNT(*) as count FROM leads");
+  const today = await db.execute(
+    "SELECT COUNT(*) as count FROM leads WHERE date(created_at) = date('now')"
+  );
+  const week = await db.execute(
+    "SELECT COUNT(*) as count FROM leads WHERE created_at >= datetime('now', '-7 days')"
+  );
+  return {
+    total: Number(total.rows[0]?.count ?? 0),
+    today: Number(today.rows[0]?.count ?? 0),
+    week: Number(week.rows[0]?.count ?? 0),
+  };
 }
 
 export type Lead = {
